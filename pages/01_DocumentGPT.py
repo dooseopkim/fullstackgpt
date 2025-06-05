@@ -1,5 +1,5 @@
+import openai
 import streamlit as st
-import time
 
 from langchain.callbacks.base import BaseCallbackHandler
 from langchain.chat_models import ChatOpenAI
@@ -28,10 +28,28 @@ class ChatCallbackHandler(BaseCallbackHandler):
         self.message += token
         self.message_box.markdown(self.message)
 
-llm = ChatOpenAI(
-    temperature=0.1,
-    streaming=True,
-    callbacks=[ChatCallbackHandler(),])
+with st.sidebar:
+    file = st.file_uploader("Upload a .txt .pdf or .docx file", type=["pdf","txt","docx"])
+    if "openai_api_key" not in st.session_state or not st.session_state["openai_api_key"]:
+        openai_api_key = st.text_input("Enter your OpenAI API key", type="password")
+        if openai_api_key:
+            st.session_state["openai_api_key"] = openai_api_key
+            st.success("✅ API key가 저장되었습니다.")
+            st.experimental_rerun()  # 입력 후 바로 리렌더링해서 input 숨김
+    else:
+        st.success("🔐 OpenAI API key가 저장되었습니다.")
+    st.markdown("### 📂 관련 링크")
+    st.markdown("[GitHub Repository](https://github.com/dooseopkim/fullstackgpt)")
+    st.markdown("[Streamlit App Repository](https://github.com/dooseopkim/fullstackgpt)")
+if "openai_api_key" in st.session_state and st.session_state["openai_api_key"]:
+    llm = ChatOpenAI(
+        temperature=0.1,
+        streaming=True,
+        callbacks=[ChatCallbackHandler()],
+        openai_api_key=st.session_state["openai_api_key"]
+    )
+else:
+    st.warning("🔑 사이드바에서 OpenAI API 키를 입력해주세요.")
 
 if "messages" not in st.session_state:
     st.session_state["messages"] = []
@@ -91,8 +109,6 @@ st.markdown("""
     
     Upload your files on the sidebar
 """)
-with st.sidebar:
-    file = st.file_uploader("Upload a .txt .pdf or .docx file", type=["pdf","txt","docx"])
 
 if file:
     retriever = embed_file(file)
