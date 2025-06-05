@@ -1,6 +1,7 @@
 import streamlit as st
 import time
 
+from langchain.callbacks.base import BaseCallbackHandler
 from langchain.chat_models import ChatOpenAI
 from langchain.document_loaders import UnstructuredFileLoader
 from langchain.embeddings import OpenAIEmbeddings, CacheBackedEmbeddings
@@ -15,12 +16,28 @@ st.set_page_config(
     page_icon="📖"
 )
 
+class ChatCallbackHandler(BaseCallbackHandler):
+    message=""
+    def on_llm_start(self, *args, **kwargs):
+        self.message_box = st.empty()
+
+    def on_llm_end(self, *args, **kwargs):
+        save_message(self.message, "ai")
+
+    def on_llm_new_token(self, token, *args, **kwargs):
+        self.message += token
+        self.message_box.markdown(self.message)
+
 llm = ChatOpenAI(
     temperature=0.1,
-)
+    streaming=True,
+    callbacks=[ChatCallbackHandler(),])
 
 if "messages" not in st.session_state:
     st.session_state["messages"] = []
+
+
+
 @st.cache_data(show_spinner="Embedding file...")
 def embed_file(file):
     file_content = file.read()
@@ -41,18 +58,21 @@ def embed_file(file):
     retriever = vectorstore.as_retriever()
     return retriever
 
+def save_message(message, role):
+    st.session_state["messages"].append({"message": message, "role": role})
 def send_message(message, role, save=True):
     with st.chat_message(role):
         st.markdown(message)
     if save:
-        st.session_state["messages"].append({"message": message, "role": role})
+        save_message(message, role)
 
 def paint_history():
     for message in st.session_state["messages"]:
         send_message(message["message"], message["role"], save=False)
 
 def format_docs(docs):
-    return
+    return "\n\n".join(document.page_content for document in docs)
+
 prompt = ChatPromptTemplate.from_messages([
     ("system",
      """
@@ -76,17 +96,22 @@ with st.sidebar:
 
 if file:
     retriever = embed_file(file)
-    send_message("I'm ready! Ask away", "ai", save=False)
+    send_message("I'm ready! Ask away!", "ai", save=False)
     paint_history()
-    message = st.chat_input("Ask anything about your file..")
-
+    message = st.chat_input("Ask anything about your file...")
     if message:
         send_message(message, "human")
-        chain = {
-            "context": retriever | RunnableLambda(format_docs),
-            "question": RunnablePassthrough()
-        } | prompt | llm
-        response = chain.invoke(message)
-        send_message(response.content, "ai")
+        chain = (
+            {
+                "context": retriever | RunnableLambda(format_docs),
+                "question": RunnablePassthrough(),
+            }
+            | prompt
+            | llm
+        )
+        with st.chat_message("ai"):
+            response = chain.invoke(message)
+
+
 else:
     st.session_state["messages"] = []
